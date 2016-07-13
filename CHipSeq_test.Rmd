@@ -11,7 +11,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ## Test Markdown by MS for CHIPseq turorial
 
-MS is makes his first markdown
+MS generates his first markdown ;)
 
 ```{r SAM}
 library(EpigeneticsCSAMA)
@@ -59,6 +59,8 @@ The reads correspond to sequences at the end of each IP-ed fragment (single-end 
 
 We estimate the mean read length using the estimate.mean.fraglen function from chipseq packege. Next, we extend the reads to the inferred read length using the resize function. We remove any reads for which the coordinates, after the extension, exceed chromosome length. These three analysis steps are wrapped in a single function prepareChIPseq function which we define below.
 
+##4 Preparation of the ChIP-seq and control samples: read extension
+
 ```{r,echo=TRUE}
 library(chipseq)
 ```
@@ -80,3 +82,344 @@ We next apply it to the input and ChIP-seq samples.
 input = prepareChIPseq( input )
 ```
 
+```{r,echo=TRUE}
+rep1 = prepareChIPseq( rep1 )
+```
+
+```{r,echo=TRUE}
+rep2 = prepareChIPseq( rep2 )
+```
+
+Compare with above to see how rep1 has changed.
+
+```{r,echo=TRUE}
+rep1
+```
+
+# 5 Binning the ChIP-seq and control
+
+The next step in the analysis is to count how many reads map to each of the pre-established genomic intervals (bins).
+
+### 5.1 Generation of bins
+
+We will tile the genome into non-overlapping bins of size 200 bp. To this end we need the information about chromosome sizes in the mouse genome (assembly mm9). In the data package, we provide the object si (strand information), which holds these data. The reader can find the code necessary to create the si object in the Obtaining si* object for *mm9** of the Appendix.
+
+```{r,echo=TRUE}
+data(si)
+si
+```
+
+Next, we use the tileGenome function from the GenomicRanges package to generate a GRanges object with intervals covering the genome in tiles (bins) of size of 200 bp.
+
+
+```{r,echo=TRUE}
+binsize = 200
+bins = tileGenome(si['chr6'], tilewidth=binsize,
+                  cut.last.tile.in.chrom=TRUE)
+bins
+```
+
+
+###5.2 Binning
+
+We now count how many reads fall into each bin. For this purpose, we define the function BinChIPseq. It takes two arguments, reads and bins which are GRanges objects.
+
+
+
+```{r,echo=TRUE}
+BinChIPseq = function( reads, bins ){
+
+       mcols(bins)$score = countOverlaps( bins, reads ) 
+       return( bins ) 
+}
+```
+
+Now we apply it to the objects input, rep1 and rep2. We obtain input.200bins, rep1.200bins and rep2.200bins, which are GRanges objects that contain the binned read coverage of the input and ChIP-seq experiments.
+
+```{r,echo=TRUE}
+input.200bins = BinChIPseq( input, bins )
+rep1.200bins = BinChIPseq( rep1, bins )
+rep2.200bins = BinChIPseq( rep2, bins )
+
+rep1.200bins
+```
+
+We can plot coverage for 1000 bins, starting from bin 200,000.
+
+```{r,echo=TRUE}
+plot( 200000:201000, rep1.200bins$score[200000:201000], 
+   xlab="chr6", ylab="counts per bin", type="l")
+```
+
+Below, we will see more sophisticated ways of plotting coverage.
+
+
+###5.3 Exporting binned data
+
+At this step of the analysis, the data is ready to be visualized and shared. One of the most common means of sharing ChIP-seq data is to generate .wig, .binWig or .bedGraph files. They are memory and size-efficient files holding the information about the signal along the genome. Moreover, these files can be visualized in genome browsers such as IGV and IGB. We show how to export the binned data as a .bedGraph file.
+
+```{r,echo=TRUE}
+export(input.200bins, 
+       con='input_chr6.bedGraph',
+       format = "bedGraph")
+export(rep1.200bins, 
+       con='H3K27ac_rep1_chr6.bedGraph',
+       format = "bedGraph")
+export(rep2.200bins, 
+       con='H3K27ac_rep2_chr6.bedGraph',
+       format = "bedGraph")
+```
+
+#6 Visualisation of ChIP-seq data wit Gviz
+
+Now, we have data which we would like to display along the genome. R offers a flexible infrastructure for visualisation of many types of genomics data. Here, we use the Gviz package for these purposes.
+
+
+```{r,echo=TRUE}
+library(Gviz)
+```
+
+
+The principle of working with Gviz relies on the generation of tracks which can be, for example ChIP-seq signal along the genome, ChIP-seq peaks, gene models or any kind of other data such as annotation of CpG islands in the genome. We start with loading the gene models for chromosome 6 starting at position 122,530,000 and ending at position 122,900,000. We focus on this region as it harbors the Nanog gene, which is stongly expressed in ES cells.
+
+We obtain the annotation using biomaRt package. Work with biomaRt package relies on querying the biomart database. In the Appendix, we show how to obtain gene models for protein coding genes for the archive mouse genome assembly (mm9) and how to generate the bm object holding the annotation of all the RefSeq genes.
+
+
+
+```{r,echo=TRUE}
+data(bm)
+bm
+```
+
+We include the GenomeAxisTrack object which is a coordinate axis showing the genomic span of the analyzed region.
+
+```{r,echo=TRUE}
+AT = GenomeAxisTrack( )
+```
+
+We plot the result using the plotTracks function. We choose the region to zoom into with the from and to arguments. The transcriptAnnotation argument allows to put the gene symbols in the plot.
+
+
+```{r,echo=TRUE}
+plotTracks(c( bm, AT),
+           from=122530000, to=122900000,
+           transcriptAnnotation="symbol", window="auto", 
+           cex.title=1, fontsize=10 )
+```
+
+
+We next add our two data tracks to the plot. We first generate DataTrack objects with DataTrack function. We include the information about how the track is be labaled and colored. We obtain input.track, rep1.track and rep2.track objects.
+
+```{r,echo=TRUE}
+input.track = DataTrack(input.200bins, 
+                        strand="*", genome="mm9", col.histogram='gray',
+                        fill.histogram='black', name="Input", col.axis="black",
+                        cex.axis=0.4, ylim=c(0,150))
+
+rep1.track = DataTrack(rep1.200bins, 
+                        strand="*", genome="mm9", col.histogram='steelblue',
+                        fill.histogram='black', name="Rep. 1", col.axis='steelblue',
+                        cex.axis=0.4, ylim=c(0,150))
+
+rep2.track = DataTrack(rep2.200bins, 
+                        strand="*", genome="mm9", col.histogram='steelblue',
+                        fill.histogram='black', name="Rep. 2", col.axis='steelblue',
+                        cex.axis=0.4, ylim=c(0,150))
+```
+
+Finally, we plot these tracks along with the genomic features. We observe a uniform coverage in the case of the input track and pronounced peaks of enrichment H3K27ac in promoter and intergenic regions. Importantly, H3K27ac enriched regions are easily identified.
+
+
+
+```{r,echo=TRUE}
+plotTracks(c(input.track, rep1.track, rep2.track, bm, AT),
+           from=122530000, to=122900000,
+           transcriptAnnotation="symbol", window="auto", 
+           type="histogram", cex.title=0.7, fontsize=10 )
+```
+
+#7 ChIP-seq peaks
+
+ChIP-seq experiments are designed to isolate regions enriched in a factor of interest. The identification of enriched regions, often refered to as peak finding, is an area of research by itself. There are many algorithms and tools used for peak finding. The choice of a method is strongly motivated by the kind of factor analyzed. For instance, transcription factor ChIP-seq yield well defined narrow peaks whereas histone modifications ChIP-seq experiments such as H3K36me3 yield extended regions of high coverage. Finally, ChIP-seq with antobodies recognizing polymerase II result in narrow peaks combined with extended regions of enrichment.
+
+
+##7.1 Identification of peaks
+
+As we saw in the previous section of the tutorial, H3K27ac mark shows well defined peaks. In such a case, MACS is one of the most commonly used software for peak finding. ChIP-seq peak calling can also be done in R with the BayesPeak package. However, we stick here to the most common approach and use MACS. We ran MACS for you and provide the result in the data package. You can find the code necessary to obtain the peaks in the Appendix of the vignette.
+
+
+##7.2 Peaks – basic analysis in R
+
+We next import the .bed files of the isolated peaks from the data package.
+
+
+```{r,echo=TRUE}
+peaks.rep1 = import.bed(file.path(dataDirectory,'Rep1_peaks_ucsc_chr6.bed'))
+peaks.rep2 = import.bed(file.path(dataDirectory,'Rep2_peaks_ucsc_chr6.bed'))
+```
+
+First step in the analysis of the identified peaks is to simply display them in the browser, along with the ChIP-seq and input tracks. To this end, we use AnnotationTrack function. We display peaks as boxes colored in blue.
+
+
+
+
+```{r,echo=TRUE}
+peaks1.track = AnnotationTrack(peaks.rep1, 
+                               genome="mm9", name='Peaks Rep. 1',
+                               chromosome='chr6',
+                               shape='box',fill='blue3',size=2)
+peaks2.track = AnnotationTrack(peaks.rep2, 
+                               genome="mm9", name='Peaks Rep. 2',
+                               chromosome='chr6',
+                               shape='box',fill='blue3',size=2)
+```
+
+We visualise the Nanog locus.
+
+```{r,echo=TRUE}
+plotTracks(c(input.track, rep1.track, peaks1.track,
+             rep2.track, peaks2.track, bm, AT),
+           from=122630000, to=122700000,
+           transcriptAnnotation="symbol", window="auto", 
+           type="histogram", cex.title=0.7, fontsize=10 )
+```
+
+
+We can see that MACS has succesfully identified regions showing high H3K27ac signal. We see that both biological replicates agree well, however, in some cases peaks are called only in one sample. In the next section, we will analyse how often do we see the overlap between peaks and isolate reproducible peaks.
+
+
+##7.3 Venn diagrams
+
+We first find the overlap between the peak sets of the two replicates.
+
+```{r,echo=TRUE}
+ovlp = findOverlaps( peaks.rep1, peaks.rep2 )
+ovlp
+```
+
+If a peak in one replicate overlaps with mutiple peaks in the other replicate, it will appear multiple times in ovlp. To see, how many peaks overlap with something in the other replicate, we count the number of unique peaks in each of the two columns of ovlp and take the smaller of these two counts to as the number of common peaks.
+
+```{r,echo=TRUE}
+ov = min( length(unique( queryHits(ovlp) )), length(unique( subjectHits(ovlp) ) ) )
+```
+
+We draw this as a Venn diagram, using the draw.pairwise.venn function from the VennDiagram package.
+
+```{r,echo=TRUE}
+library(VennDiagram)
+```
+
+
+```{r,echo=TRUE}
+draw.pairwise.venn( 
+   area1=length(peaks.rep1),
+   area2=length(peaks.rep2), 
+   cross.area=ov, 
+   category=c("rep1", "rep2"), 
+   fill=c("steelblue", "blue3"), 
+   cat.cex=0.7)
+```
+
+We will focus only on peaks identified in both replicates (hereafter refered to as enriched areas). The enriched areas are colored in green.
+
+
+```{r,echo=TRUE}
+enriched.regions = Reduce(subsetByOverlaps, list(peaks.rep1, peaks.rep2))
+
+enr.reg.track = AnnotationTrack(enriched.regions,
+                                genome="mm9", name='Enriched regions',
+                                chromosome='chr6',
+                                shape='box',fill='green3',size=2)
+
+plotTracks(c(input.track, rep1.track, peaks1.track,
+             rep2.track, peaks2.track, enr.reg.track, 
+             bm, AT),
+           from=122630000, to=122700000,
+           transcriptAnnotation="symbol", window="auto", 
+           type="histogram", cex.title=0.5, fontsize=10 )
+```
+
+
+##7.4 Isolation of promoters overlapping H3K27ac peaks
+
+One of the questions of a ChIP seq analyses is to which extend ChIP-enriched regions overlap a chosen type of features, such as promoters or regions enriched with other modifications. To this end, the overlap between peaks of ChIP-seq signal and the features of interest is analysed.
+
+We exemplify such an analysis by testing how many of the H3K27ac enriched regions overlap promoter regions.
+
+
+###7.4.1 Identification of promoters
+
+As shown in the Appendix, we have used biomaRt to get coordinates for start and end of all mouse genes. (These are the coordinates of the outermost UTR boundaries.) We load the results of the biomaRt query from the data package. It is given in the object egs, a data.frame containing ensembl ID along with gene symbols, genomic coordinates and orientation of of mouse genes.
+
+```{r,echo=TRUE}
+data(egs)
+head(egs)
+```
+
+We next identify the transcription start site (TSS), taking into account gene orientation.
+
+```{r,echo=TRUE}
+egs$TSS = ifelse( egs$strand == "1", egs$start_position, egs$end_position )
+head(egs)
+```
+
+We consider regions of [Math Processing Error] bp around the TSS as promoters.
+
+```{r,echo=TRUE}
+promoter_regions = 
+  GRanges(seqnames = Rle( paste0('chr', egs$chromosome_name) ),
+          ranges = IRanges( start = egs$TSS - 200,
+                            end = egs$TSS + 200 ),
+          strand = Rle( rep("*", nrow(egs)) ),
+          gene = egs$external_gene_id)
+promoter_regions
+```
+
+###7.4.2 Overlapping promoters with H3K27ac enriched regions
+
+Now we would like to know how many of out the promoters overlap with a H3K27ac enriched regions.
+
+
+
+```{r,echo=TRUE}
+ovlp2 = findOverlaps( enriched.regions, promoter_regions )
+
+cat(sprintf( "%d of %d promoters are overlapped by an enriched region.",
+   length( unique(subjectHits(ovlp2)) ), length( promoter_regions ) ) )
+```
+
+We can also turn the question around:
+
+```{r,echo=TRUE}
+ovlp2b = findOverlaps( promoter_regions, enriched.regions )
+
+cat(sprintf( "%d of %d enriched regions overlap a promoter.",
+   length( unique( subjectHits(ovlp2b) ) ), length( enriched.regions ) ) )
+
+
+```
+
+
+Is this a significant enrichment? To see, we first calculate how much chromosome 6 is part of a promoter region. The following command reduces the promoter list to non-overlapping intervals and sums up their widths
+
+
+```{r,echo=TRUE}
+promotor_total_length = sum(width(reduce(promoter_regions)))
+promotor_total_length
+```
+
+Which fraction of the chromsome is this?
+
+```{r,echo=TRUE}
+promotor_fraction_of_chromosome_6 = promotor_total_length / seqlengths(si)["chr6"]
+```
+
+
+```{r,echo=TRUE}
+
+```
+
+
+```{r,echo=TRUE}
+
+```
