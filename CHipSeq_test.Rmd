@@ -1,0 +1,82 @@
+---
+title: "Chipseq_test"
+author: "ms"
+date: "13 July,2016"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Test Markdown by MS for CHIPseq turorial
+
+MS is makes his first markdown
+
+```{r SAM}
+library(EpigeneticsCSAMA)
+dataDirectory =  system.file("bedfiles", package="EpigeneticsCSAMA")
+dataDirectory
+```
+
+## 3 Reading the filtered ChIP-seq reads
+
+We need to load the GenomicRanges, rtracklayer and IRanges packages. To read the .bam file to R, we use the import.bed function from the rtracklayer package. The result is a GRanges object. This is an extremely useful and powerful class of objects which the readers are already familiar with. Each filtered read is represented here as a genomic interval.
+
+```{r pressure, echo=TRUE}
+library(GenomicRanges)
+library(rtracklayer)
+library(IRanges)
+
+input = import.bed(file.path(dataDirectory, 'ES_input_filtered_ucsc_chr6.bed'))
+rep1 = import.bed(file.path(dataDirectory, 'H3K27ac_rep1_filtered_ucsc_chr6.bed'))
+rep2 = import.bed(file.path(dataDirectory, 'H3K27ac_rep2_filtered_ucsc_chr6.bed'))
+```
+
+The objects input, rep1 and rep2 hold the genomic annotation of the filtered reads for the input sample and ChIP-seq replicate 1 and replicate 2, respectively. We display the rep1 object. We see that the strand information, read name along with alignment score are included as information for each read.
+
+
+```{r,echo=TRUE}
+rep1
+```
+
+
+```{r,echo=TRUE}
+length(input)
+```
+```{r,echo=TRUE}
+
+length(rep1)
+```
+
+```{r,echo=TRUE}
+
+length(rep2)
+```
+
+
+The reads correspond to sequences at the end of each IP-ed fragment (single-end sequencing data). We need to extend these reads in order to represent each IP-ed DNA fragment.
+
+We estimate the mean read length using the estimate.mean.fraglen function from chipseq packege. Next, we extend the reads to the inferred read length using the resize function. We remove any reads for which the coordinates, after the extension, exceed chromosome length. These three analysis steps are wrapped in a single function prepareChIPseq function which we define below.
+
+```{r,echo=TRUE}
+library(chipseq)
+```
+
+```{r,echo=TRUE}
+prepareChIPseq = function(reads){
+    frag.len = median( estimate.mean.fraglen(reads) )
+    cat( paste0( 'Median fragment size for this library is ', round(frag.len)))
+    reads.extended = resize(reads, width = frag.len)
+    return( trim(reads.extended) )
+}
+```
+
+
+We next apply it to the input and ChIP-seq samples.
+
+
+```{r,echo=TRUE}
+input = prepareChIPseq( input )
+```
+
